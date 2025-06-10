@@ -1,25 +1,19 @@
-import sqlite3
-import logging
-import random
 import json
+import random
+import sqlite3
+import os
 
-# 配置日誌
-logging.basicConfig(filename='metadata_collection.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-# 配置常量
-DB_NAME = "cloud_storage.db"
-TARGET_METADATA_COUNT = 1000
-FILE_TYPES = ['pdf', 'txt', 'jpg', 'docx']
-TAGS = ['report', 'image', 'document', 'data', 'personal', 'work']
+FILE_TYPES = ['jpg', 'png', 'pdf', 'docx', 'txt']
+TAGS = ['report', 'image', 'document', 'photo', 'note', 'anime', 'gundam', 'robot']
 
 def init_database():
     """初始化 SQLite 數據庫"""
-    conn = sqlite3.connect(DB_NAME)
+    conn = sqlite3.connect('cloud_storage.db')
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS files (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
+            user_id TEXT,
             filename TEXT,
             filepath TEXT,
             metadata TEXT,
@@ -30,13 +24,21 @@ def init_database():
     return conn, cursor
 
 def generate_metadata(user_id, count):
-    """生成模擬文件元數據"""
+    """生成模擬元數據"""
     metadata_list = []
+    if user_id == '1':
+        metadata_list.append({
+            'user_id': user_id,
+            'filename': 'G Gundam.jpg',
+            'filepath': f'Uploads/users/{user_id}/G Gundam.jpg',
+            'metadata': json.dumps({'tags': ['gundam', 'image', 'anime']}),
+            'upload_date': '2025-06-10T12:00:00Z'
+        })
     for i in range(count):
         filename = f"file_{user_id}_{i}.{random.choice(FILE_TYPES)}"
         tags = random.sample(TAGS, k=random.randint(1, 3))
         metadata = {'tags': tags}
-        filepath = f"uploads/users/{user_id}/{filename}"
+        filepath = f"Uploads/users/{user_id}/{filename}"
         metadata_list.append({
             'user_id': user_id,
             'filename': filename,
@@ -46,28 +48,25 @@ def generate_metadata(user_id, count):
         })
     return metadata_list
 
-def main():
-    """主函數：生成並儲存模擬元數據"""
+def save_metadata(metadata_list):
+    """儲存元數據到數據庫"""
     conn, cursor = init_database()
-    try:
-        # 模擬 10 個用戶，每人 100 個文件元數據
-        for user_id in range(1, 11):
-            metadata_list = generate_metadata(user_id, TARGET_METADATA_COUNT // 10)
-            for metadata in metadata_list:
-                cursor.execute(
-                    'INSERT OR IGNORE INTO files (user_id, filename, filepath, metadata, upload_date) VALUES (?, ?, ?, ?, ?)',
-                    (metadata['user_id'], metadata['filename'], metadata['filepath'], metadata['metadata'], metadata['upload_date'])
-                )
-            conn.commit()
-            logging.info(f"已為用戶 {user_id} 生成 {len(metadata_list)} 條元數據")
-        cursor.execute('SELECT COUNT(*) FROM files')
-        count = cursor.fetchone()[0]
-        logging.info(f"總共生成 {count} 條元數據")
-        print(f"總共生成 {count} 條元數據")
-    except Exception as e:
-        logging.error(f"生成元數據失敗: {str(e)}")
-    finally:
-        conn.close()
+    for metadata in metadata_list:
+        cursor.execute('''
+            INSERT OR REPLACE INTO files (user_id, filename, filepath, metadata, upload_date)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (
+            metadata['user_id'],
+            metadata['filename'],
+            metadata['filepath'],
+            metadata['metadata'],
+            metadata['upload_date']
+        ))
+    conn.commit()
+    conn.close()
 
 if __name__ == "__main__":
-    main()
+    os.makedirs('Uploads/users/1', exist_ok=True)
+    metadata = generate_metadata('1', 10)
+    save_metadata(metadata)
+    print("元數據生成並儲存完成")
