@@ -17,13 +17,15 @@ npx tsc --init
 
 npm install -D ts-node
 
-npx ts-node backend/src/server.ts
+npx ts-node src/server.ts
 
 ## 終端機02 - Flask 伺服器設置 (操作流程)
 
 打開新終端機
 
 cd ai
+
+python -m venv venv
 
 source venv/Scripts/activate
 
