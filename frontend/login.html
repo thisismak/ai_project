@@ -29,22 +29,23 @@
     document.getElementById('login-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const email = document.getElementById('email').value;
-      const password = document.getElementByandoli='password').value;
+      const password = document.getElementById('password').value;
 
       try {
         const response = await fetch('/api/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password }),
+          body: JSON.stringify({ email, password })
         });
         const data = await response.json();
         if (data.token) {
           localStorage.setItem('token', data.token);
           window.location.href = 'index.html';
         } else {
-          alert('登入失敗: ' + data.error);
+          alert('登入失敗: ' + (data.error || '未知錯誤'));
         }
       } catch (error) {
+        console.error('登入失敗:', error);
         alert('登入失敗: 網絡錯誤');
       }
     });

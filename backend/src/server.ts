@@ -7,10 +7,19 @@ import { open } from 'sqlite';
 import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
+import { exec } from 'child_process';
 
 // 配置 Express
 const app = express();
 app.use(express.json());
+
+// Serve static files from the frontend directory
+app.use(express.static(path.join(__dirname, '../../frontend')));
+
+// Serve index.html for the root route
+app.get('/', (req: Request, res: Response) => {
+  res.sendFile(path.join(__dirname, '../../frontend/index.html'));
+});
 
 // 配置 Multer 用於文件上傳
 const storage = multer.diskStorage({
@@ -95,7 +104,7 @@ app.post('/api/auth/register', async (req: Request, res: Response): Promise<void
 // 登入
 app.post('/api/auth/login', async (req: Request, res: Response): Promise<void> => {
   const { email, password } = req.body;
-  let db; // 声明 db 在 try 块外部
+  let db;
   try {
     db = await initDatabase();
     const user = await db.get('SELECT * FROM users WHERE email = ?', [email]);
@@ -108,7 +117,7 @@ app.post('/api/auth/login', async (req: Request, res: Response): Promise<void> =
   } catch (error) {
     res.status(500).json({ error: '登入失敗' });
   } finally {
-    if (db) await db.close(); // 檢查 db 是否存在
+    if (db) await db.close();
   }
 });
 
@@ -122,7 +131,7 @@ app.post('/api/files/upload', authenticateToken, upload.single('file'), async (r
   }
 
   const filepath = path.join('uploads/users', String(userId), file.filename);
-  let db; // 声明 db 在 try 块外部
+  let db;
   try {
     db = await initDatabase();
     await db.run(
@@ -133,7 +142,7 @@ app.post('/api/files/upload', authenticateToken, upload.single('file'), async (r
   } catch (error) {
     res.status(500).json({ error: '上傳失敗' });
   } finally {
-    if (db) await db.close(); // 檢查 db 是否存在
+    if (db) await db.close();
   }
 });
 
@@ -223,4 +232,41 @@ app.get('/api/search', authenticateToken, async (req: Request, res: Response): P
   }
 });
 
-app.listen(3000, () => console.log('服務器運行在端口 3000'));
+// Custom listening-on function
+function print(port: number, options: { openBrowser?: boolean } = {}): void {
+  const { openBrowser = false } = options;
+  const url = `http://localhost:${port}`;
+  const formattedMessage = `
+    🚀 Server is running!
+    🌐 Listening on port: ${port}
+    🔗 URL: ${url}
+    📅 Started at: ${new Date().toLocaleString('en-US', { timeZone: 'Asia/Hong_Kong' })}
+  `;
+  console.log(formattedMessage);
+
+  if (openBrowser) {
+    const openCommand = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
+    exec(`${openCommand} ${url}`, (error) => {
+      if (error) {
+        console.error(`❌ Failed to open browser: ${error.message}`);
+      } else {
+        console.log(`✅ Opened in default browser: ${url}`);
+      }
+    });
+  }
+}
+
+// Replace app.listen with enhanced version
+const port = 3000;
+const server = app.listen(port, () => {
+  print(port, { openBrowser: true }); // Set openBrowser to false to disable
+});
+
+// Handle server errors
+server.on('error', (error: any) => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(`❌ Port ${port} is already in use. Please try a different port.`);
+  } else {
+    console.error(`❌ Server startup failed: ${error.message}`);
+  }
+});

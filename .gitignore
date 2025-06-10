@@ -1,2 +1,7 @@
 backend/node_modules
 backend/package-*
+backend/*.db
+backend/uploads
+ai/*.db
+ai/venv
+ai/*.log
