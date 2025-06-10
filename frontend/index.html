@@ -19,13 +19,22 @@
       placeholder="搜尋文件..."
       class="w-full p-2 border rounded"
     />
-    <ul id="search-results" class="search-results"></ul>
+    <ul id="search-results" class="search-results absolute w-full bg-white border rounded shadow mt-1 max-h-60 overflow-y-auto hidden"></ul>
+    <div id="search-error" class="text-red-500 mt-2 hidden"></div>
   </div>
   <div class="mb-6">
-    <label class="block mb-2">
-      上傳文件:
-      <input type="file" id="upload-input" class="ml-2">
-    </label>
+    <h2 class="text-xl font-semibold mb-2">上傳文件</h2>
+    <form id="upload-form" class="flex flex-col">
+      <input type="file" id="file-input" class="mb-2">
+      <input
+        type="text"
+        id="tags-input"
+        placeholder="輸入標籤，用逗號分隔（例如：文件,重要）"
+        class="w-full p-2 border rounded mb-2"
+      >
+      <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">上載檔案</button>
+    </form>
+    <div id="upload-error" class="text-red-500 mt-2 hidden"></div>
   </div>
   <div>
     <h2 class="text-2xl font-semibold mb-4">您的文件</h2>
@@ -96,47 +105,92 @@
     async function handleSearch() {
       const query = document.getElementById('search-input').value;
       const resultsList = document.getElementById('search-results');
+      const errorDiv = document.getElementById('search-error');
+      errorDiv.classList.add('hidden');
+
       if (query.length > 2) {
         try {
           const results = await apiRequest(`/api/search?q=${encodeURIComponent(query)}`, 'GET');
           resultsList.innerHTML = '';
-          results.forEach(file => {
-            const li = document.createElement('li');
-            li.className = 'p-2 hover:bg-gray-100';
-            li.textContent = file;
-            resultsList.appendChild(li);
-          });
-          resultsList.classList.add('active');
+          if (results.error) {
+            throw new Error(results.error);
+          }
+          // Handle local_files and external_images
+          if (!results.local_files && !results.external_images) {
+            resultsList.innerHTML = '<li class="p-2 text-gray-500">無結果</li>';
+            resultsList.classList.remove('hidden');
+            return;
+          }
+          if (results.local_files) {
+            results.local_files.forEach(file => {
+              const li = document.createElement('li');
+              li.className = 'p-2 hover:bg-gray-100';
+              li.textContent = file.filename;
+              resultsList.appendChild(li);
+            });
+          }
+          if (results.external_images) {
+            results.external_images.forEach(image => {
+              const li = document.createElement('li');
+              li.className = 'p-2 hover:bg-gray-100';
+              li.innerHTML = `<img src="${image.url}" alt="${image.title}" class="w-16 h-16 inline-block mr-2">${image.title}`;
+              resultsList.appendChild(li);
+            });
+          }
+          resultsList.classList.remove('hidden');
         } catch (error) {
           console.error('搜尋失敗:', error);
+          errorDiv.textContent = '搜尋失敗: ' + error.message;
+          errorDiv.classList.remove('hidden');
           resultsList.innerHTML = '';
-          resultsList.classList.remove('active');
+          resultsList.classList.add('hidden');
         }
       } else {
         resultsList.innerHTML = '';
-        resultsList.classList.remove('active');
+        resultsList.classList.add('hidden');
       }
     }
 
-    // 處理文件上傳
-    async function handleUpload(event) {
-      const file = event.target.files[0];
-      if (!file) return;
+    // 處理文件上載
+    document.getElementById('upload-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fileInput = document.getElementById('file-input');
+      const tagsInput = document.getElementById('tags-input').value;
+      const file = fileInput.files[0];
+      const errorDiv = document.getElementById('upload-error');
+
+      if (!file || !tagsInput) {
+        errorDiv.textContent = '請選擇文件並輸入標籤';
+        errorDiv.classList.remove('hidden');
+        return;
+      }
 
       const formData = new FormData();
       formData.append('file', file);
+      formData.append('tags', tagsInput);
+
       try {
-        await fetch('/api/files/upload', {
+        const response = await fetch('/api/upload', {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}` },
           body: formData
         });
-        fetchFiles();
+        const data = await response.json();
+        if (data.message) {
+          alert('上載成功');
+          fileInput.value = '';
+          tagsInput.value = '';
+          errorDiv.classList.add('hidden');
+          fetchFiles();
+        } else {
+          throw new Error(data.error || '上載失敗');
+        }
       } catch (error) {
-        console.error('上傳失敗:', error);
-        alert('上傳失敗');
+        console.error('上載失敗:', error);
+        errorDiv.textContent = '上載錯誤: ' + error.message;
+        errorDiv.classList.remove('hidden');
       }
-    }
+    });
 
     // 刪除文件
     async function deleteFile(fileId) {
@@ -144,16 +198,15 @@
       try {
         await apiRequest(`/api/files/delete/${fileId}`, 'DELETE');
         fetchFiles();
-        alert('刪除成功');
+        alert('文件已刪除');
       } catch (error) {
         console.error('刪除失敗:', error);
-        alert('刪除失敗');
+        alert('刪除失敗: ' + error.message);
       }
     }
 
-    // 事件監聽
+    // 事件監聽者
     document.getElementById('search-input').addEventListener('input', handleSearch);
-    document.getElementById('upload-input').addEventListener('change', handleUpload);
     document.getElementById('logout-btn').addEventListener('click', () => {
       localStorage.removeItem('token');
       window.location.href = 'login.html';

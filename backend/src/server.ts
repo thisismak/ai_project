@@ -5,8 +5,13 @@ import { open } from 'sqlite';
 import jwt from 'jsonwebtoken';
 import fileUpload from 'express-fileupload';
 import cors from 'cors';
+import bcrypt from 'bcrypt';
 import fs from 'fs';
 import path from 'path';
+import dotenv from 'dotenv';
+
+// Load environment variables
+dotenv.config();
 
 // 擴展 Request 類型
 declare module 'express-serve-static-core' {
@@ -20,14 +25,60 @@ app.use(express.json());
 app.use(fileUpload());
 app.use(cors());
 
-const JWT_SECRET = 'your_jwt_secret'; // 替換為實際密鑰
+// Serve static files from the frontend directory
+app.use(express.static(path.join(__dirname, '..', '..', 'frontend')));
+
+const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret';
 
 async function initDatabase() {
-  const dbPath = path.join(__dirname, '..', 'ai', 'cloud_storage.db');
-  return open({
-    filename: dbPath,
-    driver: sqlite3.Database
-  });
+  const dbDir = path.join(__dirname, '..', 'ai');
+  const dbPath = path.join(dbDir, 'cloud_storage.db');
+
+  // Create ai directory if it doesn't exist
+  if (!fs.existsSync(dbDir)) {
+    fs.mkdirSync(dbDir, { recursive: true });
+    console.log(`Created directory: ${dbDir}`);
+  }
+
+  try {
+    const db = await open({
+      filename: dbPath,
+      driver: sqlite3.Database
+    });
+    // Create users table
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT UNIQUE,
+        password TEXT
+      )
+    `);
+    // Create files table
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS files (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT,
+        filename TEXT,
+        filepath TEXT,
+        metadata TEXT,
+        upload_date TEXT
+      )
+    `);
+    // Create search_history table
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS search_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT,
+        query TEXT,
+        timestamp TEXT
+      )
+    `);
+    console.log(`Database initialized at: ${dbPath}`);
+    return db;
+  } catch (error) {
+    console.error(`Failed to initialize database at ${dbPath}:`, error);
+    throw error;
+  }
 }
 
 // 驗證 JWT
@@ -43,34 +94,98 @@ function authenticateToken(req: Request, res: Response, next: NextFunction): voi
       res.status(403).json({ error: '無效令牌' });
       return;
     }
-    req.user = user;
-    next();
+    if (user && typeof user === 'object' && 'userId' in user) {
+      req.user = { userId: (user as any).userId };
+      next();
+    } else {
+      res.status(403).json({ error: '無效用戶數據' });
+      return;
+    }
   });
 }
+
+// 註冊
+app.post('/api/auth/register', async (req: Request, res: Response): Promise<void> => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    res.status(400).json({ error: '缺少電郵或密碼' });
+    return;
+  }
+  try {
+    const db = await initDatabase();
+    try {
+      const hashedPassword = await bcrypt.hash(password, 10);
+      await db.run('INSERT INTO users (email, password) VALUES (?, ?)', [email, hashedPassword]);
+      res.json({ message: '註冊成功' });
+    } finally {
+      await db.close();
+    }
+  } catch (error: any) {
+    console.error('註冊錯誤:', error);
+    if (error.code === 'SQLITE_CONSTRAINT') {
+      res.status(409).json({ error: '電郵已存在' });
+    } else {
+      res.status(500).json({ error: '註冊失敗: 數據庫錯誤' });
+    }
+  }
+});
+
+// 登錄
+app.post('/api/login', async (req: Request, res: Response): Promise<void> => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    res.status(400).json({ error: '缺少電郵或密碼' });
+    return;
+  }
+  try {
+    const db = await initDatabase();
+    try {
+      const user = await db.get('SELECT * FROM users WHERE email = ?', [email]);
+      if (!user) {
+        res.status(401).json({ error: '無效憑證' });
+        return;
+      }
+      const match = await bcrypt.compare(password, user.password);
+      if (match) {
+        const token = jwt.sign({ userId: user.id.toString() }, JWT_SECRET, { expiresIn: '1h' });
+        res.json({ token, userId: user.id });
+      } else {
+        res.status(401).json({ error: '無效憑證' });
+      }
+    } finally {
+      await db.close();
+    }
+  } catch (error) {
+    console.error('登入錯誤:', error);
+    res.status(500).json({ error: '登入失敗: 數據庫錯誤' });
+  }
+});
 
 // 搜尋
 app.get('/api/search', authenticateToken, async (req: Request, res: Response): Promise<void> => {
   const query = req.query.q as string;
-  const userId = req.user?.userId; // 使用安全類型
+  const userId = req.user?.userId;
   if (!userId) {
     res.status(401).json({ error: '無效用戶' });
     return;
   }
-  const db = await initDatabase();
   try {
-    const response = await axios.post('http://localhost:5000/recommend', { query, userId });
-    const { local_files, external_images } = response.data;
-    await db.run('INSERT INTO search_history (user_id, query, timestamp) VALUES (?, ?, ?)', [
-      userId,
-      query,
-      new Date().toISOString(),
-    ]);
-    res.json({ local_files, external_images });
+    const db = await initDatabase();
+    try {
+      const response = await axios.post('http://localhost:5000/recommend', { query, userId });
+      const { local_files, external_images } = response.data;
+      await db.run('INSERT INTO search_history (user_id, query, timestamp) VALUES (?, ?, ?)', [
+        userId,
+        query,
+        new Date().toISOString(),
+      ]);
+      res.json({ local_files, external_images });
+    } finally {
+      await db.close();
+    }
   } catch (error) {
     console.error('搜尋錯誤:', error);
     res.status(500).json({ error: '搜尋失敗' });
-  } finally {
-    await db.close();
   }
 });
 
@@ -94,31 +209,107 @@ app.post('/api/upload', authenticateToken, async (req: Request, res: Response): 
   }
   const filepath = path.join(userDir, filename);
   const metadata = JSON.stringify({ tags: tags.split(',').map((tag: string) => tag.trim()) });
-  const db = await initDatabase();
   try {
-    await file.mv(filepath);
-    await db.run('INSERT INTO files (user_id, filename, filepath, metadata) VALUES (?, ?, ?, ?)', [
-      userId, filename, filepath, metadata
-    ]);
-    res.json({ message: '上傳成功' });
+    const db = await initDatabase();
+    try {
+      await file.mv(filepath);
+      await db.run('INSERT INTO files (user_id, filename, filepath, metadata, upload_date) VALUES (?, ?, ?, ?, ?)', [
+        userId,
+        filename,
+        filepath,
+        metadata,
+        new Date().toISOString()
+      ]);
+      res.json({ message: '上傳成功' });
+    } finally {
+      await db.close();
+    }
   } catch (error) {
     console.error('上傳錯誤:', error);
     res.status(500).json({ error: '上傳失敗' });
-  } finally {
-    await db.close();
   }
 });
 
-// 假設登錄端點
-app.post('/api/login', async (req: Request, res: Response): Promise<void> => {
-  const { username, password } = req.body;
-  // 簡化驗證，實際應檢查數據庫
-  if (username === 'test' && password === 'test') {
-    const token = jwt.sign({ userId: '1' }, JWT_SECRET, { expiresIn: '1h' });
-    res.json({ token, userId: '1' });
-  } else {
-    res.status(401).json({ error: '無效憑證' });
+// 獲取文件列表
+app.get('/api/files/list', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+  const userId = req.user?.userId;
+  if (!userId) {
+    res.status(401).json({ error: '無效用戶' });
+    return;
   }
+  try {
+    const db = await initDatabase();
+    try {
+      const files = await db.all('SELECT id, filename, upload_date FROM files WHERE user_id = ?', [userId]);
+      res.json(files);
+    } finally {
+      await db.close();
+    }
+  } catch (error) {
+    console.error('獲取文件列表錯誤:', error);
+    res.status(500).json({ error: '獲取文件列表失敗' });
+  }
+});
+
+// 刪除文件
+app.delete('/api/files/delete/:id', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+  const userId = req.user?.userId;
+  const fileId = req.params.id;
+  if (!userId) {
+    res.status(401).json({ error: '無效用戶' });
+    return;
+  }
+  try {
+    const db = await initDatabase();
+    try {
+      const file = await db.get('SELECT filepath FROM files WHERE id = ? AND user_id = ?', [fileId, userId]);
+      if (!file) {
+        res.status(404).json({ error: '文件不存在' });
+        return;
+      }
+      await db.run('DELETE FROM files WHERE id = ? AND user_id = ?', [fileId, userId]);
+      if (fs.existsSync(file.filepath)) {
+        fs.unlinkSync(file.filepath);
+      }
+      res.json({ message: '刪除成功' });
+    } finally {
+      await db.close();
+    }
+  } catch (error) {
+    console.error('刪除文件錯誤:', error);
+    res.status(500).json({ error: '刪除文件失敗' });
+  }
+});
+
+// 下載文件
+app.get('/api/files/download/:id', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+  const userId = req.user?.userId;
+  const fileId = req.params.id;
+  if (!userId) {
+    res.status(401).json({ error: '無效用戶' });
+    return;
+  }
+  try {
+    const db = await initDatabase();
+    try {
+      const file = await db.get('SELECT filepath, filename FROM files WHERE id = ? AND user_id = ?', [fileId, userId]);
+      if (!file) {
+        res.status(404).json({ error: '文件不存在' });
+        return;
+      }
+      res.download(file.filepath, file.filename);
+    } finally {
+      await db.close();
+    }
+  } catch (error) {
+    console.error('下載錯誤:', error);
+    res.status(500).json({ error: '下載失敗' });
+  }
+});
+
+// Serve index.html for the root route
+app.get('/', (req: Request, res: Response): void => {
+  res.sendFile(path.join(__dirname, '..', '..', 'frontend', 'index.html'));
 });
 
 app.listen(3000, () => console.log('後端運行於 http://localhost:3000'));

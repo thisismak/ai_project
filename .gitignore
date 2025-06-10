@@ -1,7 +1,7 @@
 backend/node_modules
 backend/package-*
-backend/*.db
-backend/uploads
+backend/ai/*.db
+backend/src/Uploads
 ai/*.db
 ai/venv
 ai/*.log

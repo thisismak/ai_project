@@ -7,9 +7,9 @@ cd backend
 
 npm init -y
 
-npm install express jsonwebtoken bcrypt multer sqlite3 sqlite axios express-fileupload cors
+npm install express jsonwebtoken bcrypt multer sqlite3 sqlite axios express-fileupload cors dotenv
 
-npm install -D @types/express @types/jsonwebtoken @types/bcrypt @types/multer @types/node @types/express-fileupload @types/cors
+npm install -D @types/express @types/jsonwebtoken @types/bcrypt @types/multer @types/node @types/express-fileupload @types/cors dotenv
 
 npm install -D typescript
 
