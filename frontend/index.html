@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>雲端儲存 - 儀表板</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="bg-gray-100 p-6">
+  <header class="flex justify-between items-center mb-6">
+    <h1 class="text-3xl font-bold">雲端儲存</h1>
+    <button id="logout-btn" class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">登出</button>
+  </header>
+  <div class="mb-6 relative">
+    <input
+      type="text"
+      id="search-input"
+      placeholder="搜尋文件..."
+      class="w-full p-2 border rounded"
+    />
+    <ul id="search-results" class="search-results"></ul>
+  </div>
+  <div class="mb-6">
+    <label class="block mb-2">
+      上傳文件:
+      <input type="file" id="upload-input" class="ml-2">
+    </label>
+  </div>
+  <div>
+    <h2 class="text-2xl font-semibold mb-4">您的文件</h2>
+    <div id="file-list" class="grid grid-cols-1 gap-4"></div>
+  </div>
+
+  <script src="utils.js"></script>
+  <script>
+    // 檢查用戶是否已登入
+    const token = localStorage.getItem('token');
+    if (!token) {
+      window.location.href = 'login.html';
+    }
+
+    // 獲取文件列表
+    async function fetchFiles() {
+      try {
+        const files = await apiRequest('/api/files/list', 'GET');
+        const fileList = document.getElementById('file-list');
+        fileList.innerHTML = '';
+        files.forEach(file => {
+          const div = document.createElement('div');
+          div.className = 'bg-white p-4 border rounded shadow flex justify-between items-center';
+          div.innerHTML = `
+            <div>
+              <p>${file.filename}</p>
+              <p class="text-sm text-gray-500">上傳時間: ${file.uploadDate}</p>
+            </div>
+            <div>
+              <a href="/api/files/download/${file.id}" class="bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600 mr-2">下載</a>
+              <button class="bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600" onclick="deleteFile('${file.id}')">刪除</button>
+            </div>
+          `;
+          fileList.appendChild(div);
+        });
+      } catch (error) {
+        console.error('獲取文件失敗:', error);
+        alert('獲取文件失敗');
+      }
+    }
+
+    // 處理搜尋
+    async function handleSearch() {
+      const query = document.getElementById('search-input').value;
+      const resultsList = document.getElementById('search-results');
+      if (query.length > 2) {
+        try {
+          const results = await apiRequest(`/api/search?q=${encodeURIComponent(query)}`, 'GET');
+          resultsList.innerHTML = '';
+          results.forEach(file => {
+            const li = document.createElement('li');
+            li.className = 'p-2 hover:bg-gray-100';
+            li.textContent = file;
+            resultsList.appendChild(li);
+          });
+          resultsList.classList.add('active');
+        } catch (error) {
+          console.error('搜尋失敗:', error);
+          resultsList.innerHTML = '';
+          resultsList.classList.remove('active');
+        }
+      } else {
+        resultsList.innerHTML = '';
+        resultsList.classList.remove('active');
+      }
+    }
+
+    // 處理文件上傳
+    async function handleUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const formData = new FormData();
+      formData.append('file', file);
+      try {
+        await fetch('/api/files/upload', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body: formData,
+        });
+        fetchFiles();
+      } catch (error) {
+        console.error('上傳失敗:', error);
+        alert('上傳失敗');
+      }
+    }
+
+    // 刪除文件
+    async function deleteFile(fileId) {
+      if (!confirm('確定要刪除此文件？')) return;
+      try {
+        await apiRequest(`/api/files/delete/${fileId}`, 'DELETE');
+        fetchFiles();
+        alert('刪除成功');
+      } catch (error) {
+        console.error('刪除失敗:', error);
+        alert('刪除失敗');
+      }
+    }
+
+    // 事件監聽
+    document.getElementById('search-input').addEventListener('input', handleSearch);
+    document.getElementById('upload-input').addEventListener('change', handleUpload);
+    document.getElementById('logout-btn').addEventListener('click', () => {
+      localStorage.removeItem('token');
+      window.location.href = 'login.html';
+    });
+
+    // 初始化文件列表
+    fetchFiles();
+  </script>
+</body>
+</html>
