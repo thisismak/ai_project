@@ -169,11 +169,20 @@ app.get('/api/search', authenticateToken, async (req: Request, res: Response): P
     res.status(401).json({ error: '無效用戶' });
     return;
   }
+  if (!query) {
+    res.status(400).json({ error: '缺少搜尋查詢' });
+    return;
+  }
   try {
     const db = await initDatabase();
     try {
-      const response = await axios.post('http://localhost:5000/recommend', { query, userId });
+      const response = await axios.post('http://localhost:5000/recommend', { query, userId }, {
+        timeout: 10000 // 設置 10 秒超時
+      });
       const { local_files, external_images } = response.data;
+      if (response.data.error) {
+        throw new Error(response.data.error);
+      }
       await db.run('INSERT INTO search_history (user_id, query, timestamp) VALUES (?, ?, ?)', [
         userId,
         query,
@@ -183,9 +192,19 @@ app.get('/api/search', authenticateToken, async (req: Request, res: Response): P
     } finally {
       await db.close();
     }
-  } catch (error) {
-    console.error('搜尋錯誤:', error);
-    res.status(500).json({ error: '搜尋失敗' });
+  } catch (error: any) {
+    console.error('搜尋錯誤:', {
+      message: error.message,
+      stack: error.stack,
+      response: error.response ? {
+        status: error.response.status,
+        data: error.response.data
+      } : null
+    });
+    res.status(500).json({
+      error: '搜尋失敗',
+      details: error.response?.data?.details || error.message
+    });
   }
 });
 

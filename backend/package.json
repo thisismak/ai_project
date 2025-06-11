@@ -9,7 +9,6 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
   "dependencies": {
     "axios": "^1.9.0",
     "bcrypt": "^6.0.0",
@@ -33,5 +32,6 @@
     "ts-node": "^10.9.2",
     "typescript": "^5.8.3"
   },
-  "type": "commonjs"
+  "type": "commonjs",
+  "description": ""
 }
