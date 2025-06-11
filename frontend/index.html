@@ -20,7 +20,7 @@
       placeholder="搜尋文件..."
       class="w-full p-2 border rounded"
     />
-    <ul id="search-results" class="search-results absolute w-full bg-white border rounded shadow mt-1 max-h-60 overflow-y-auto hidden"></ul>
+    <ul id="search-results" class="absolute w-full bg-white border rounded shadow mt-1 max-h-60 overflow-y-auto hidden"></ul>
     <div id="search-error" class="text-red-500 mt-2 hidden"></div>
   </div>
   <div class="mb-6">
@@ -46,9 +46,18 @@
   <script>
     // 檢查用戶是否已登入
     const token = localStorage.getItem('token');
-    console.log('Token:', token); // 除錯：檢查 token 是否存在
+    console.log('Token:', token);
     if (!token) {
       window.location.href = 'login.html';
+    }
+
+    // Debounce 函數
+    function debounce(func, wait) {
+      let timeout;
+      return function (...args) {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(this, args), wait);
+      };
     }
 
     // 獲取文件列表
@@ -119,10 +128,10 @@
       const resultsList = document.getElementById('search-results');
       const errorDiv = document.getElementById('search-error');
       errorDiv.classList.add('hidden');
-
       if (query.length > 2) {
         try {
-          const results = await apiRequest(`/api/search?q=${encodeURIComponent(query)}`, 'GET');
+          const results = await apiRequest(`/api/search?q=${encodeURIComponent(query.trim())}`, 'GET');
+          console.log('Search Results:', results);
           resultsList.innerHTML = '';
           if (results.error) {
             throw new Error(results.error);
@@ -132,16 +141,18 @@
             resultsList.classList.remove('hidden');
             return;
           }
-          if (results.local_files) {
+          if (results.local_files && Array.isArray(results.local_files)) {
             results.local_files.forEach(file => {
+              console.log('Processing file:', file);
               const li = document.createElement('li');
               li.className = 'p-2 hover:bg-gray-100';
-              li.textContent = file.filename;
+              li.textContent = typeof file === 'string' ? file : file.filename || '未知文件';
               resultsList.appendChild(li);
             });
           }
-          if (results.external_images) {
+          if (results.external_images && Array.isArray(results.external_images)) {
             results.external_images.forEach(image => {
+              console.log('Processing image:', image);
               const li = document.createElement('li');
               li.className = 'p-2 hover:bg-gray-100';
               li.innerHTML = `<img src="${image.url}" alt="${image.title}" class="w-16 h-16 inline-block mr-2">${image.title}`;
@@ -149,6 +160,7 @@
             });
           }
           resultsList.classList.remove('hidden');
+          console.log('Search results visibility:', resultsList.classList);
         } catch (error) {
           console.error('搜尋失敗:', error);
           errorDiv.textContent = '搜尋失敗: ' + error.message;
@@ -169,22 +181,19 @@
       const tagsInput = document.getElementById('tags-input').value;
       const file = fileInput.files[0];
       const errorDiv = document.getElementById('upload-error');
-
       if (!file || !tagsInput) {
         errorDiv.textContent = '請選擇文件並輸入標籤';
         errorDiv.classList.remove('hidden');
         return;
       }
-
       const formData = new FormData();
       formData.append('file', file);
       formData.append('tags', tagsInput);
-      console.log('FormData:', formData.get('file'), formData.get('tags')); // 除錯：檢查 FormData
-
+      console.log('FormData:', formData.get('file'), formData.get('tags'));
       try {
         const response = await fetch('/api/upload', {
           method: 'POST',
-          headers: { Authorization: `Bearer ${token}` }, // 不設置 Content-Type
+          headers: { Authorization: `Bearer ${token}` },
           body: formData
         });
         const data = await response.json();
@@ -218,7 +227,7 @@
     }
 
     // 事件監聽者
-    document.getElementById('search-input').addEventListener('input', handleSearch);
+    document.getElementById('search-input').addEventListener('input', debounce(handleSearch, 300));
     document.getElementById('logout-btn').addEventListener('click', () => {
       localStorage.removeItem('token');
       window.location.href = 'login.html';

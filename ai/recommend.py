@@ -36,6 +36,11 @@ except Exception as e:
 nltk.download('stopwords')
 stop_words = set(stopwords.words('english'))
 
+# 爬蟲配置（目前禁用）
+MAX_IMAGES_PER_QUERY = 3
+NAVIGATION_TIMEOUT = 30000  # 30秒
+LOAD_STATE_TIMEOUT = 20000  # 20秒
+
 def init_database():
     """初始化 SQLite 數據庫"""
     try:
@@ -120,6 +125,64 @@ def get_external_images(query, user_id):
         logging.error(f"獲取外部圖片失敗: {str(e)}")
         return []
 
+    # 若需恢復爬蟲，取消以下註釋並確保 Playwright 環境正確
+    """
+    try:
+        conn, cursor = init_database()
+        cursor.execute("SELECT url, alt_text, source, title FROM external_images WHERE query = ? ORDER BY timestamp DESC LIMIT 3", (query,))
+        cached_images = [
+            {"url": row[0], "alt": row[1], "source": row[2], "title": row[3]}
+            for row in cursor.fetchall()
+        ]
+        if cached_images:
+            logging.info(f"從快取返回 {len(cached_images)} 張圖片 for {query}")
+            conn.close()
+            return cached_images
+        
+        preferred_tags = get_user_preferred_tags(user_id)
+        enhanced_query = f"{query} {' '.join(preferred_tags[:3])}" if preferred_tags else query
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            )
+            page = context.new_page()
+            try:
+                logging.info(f"Google 搜尋 {enhanced_query}")
+                page.goto(f"https://www.google.com/search?tbm=isch&q={enhanced_query}", timeout=NAVIGATION_TIMEOUT)
+                page.wait_for_load_state("networkidle", timeout=LOAD_STATE_TIMEOUT)
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                page.wait_for_timeout(1000)
+                image_elements = page.query_selector_all("img[src^='http']")
+                images = []
+                for img in image_elements:
+                    src = img.get_attribute("src")
+                    alt = img.get_attribute("alt") or "No alt text"
+                    if src and alt.strip():
+                        images.append({"url": src, "alt": alt, "source": "Google", "title": alt})
+                logging.info(f"Google 搜尋 {enhanced_query} 收集 {len(images)} 張圖片")
+            except Exception as e:
+                logging.error(f"Google 搜尋 {enhanced_query} 失敗: {str(e)}")
+                images = []
+            context.close()
+            browser.close()
+        
+        if images:
+            for img in images:
+                cursor.execute(
+                    "INSERT OR IGNORE INTO external_images (query, url, alt_text, source, title, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+                    (query, img["url"], img["alt"], img["source"], img["title"], "2025-06-11T16:50:00Z")
+                )
+            conn.commit()
+        
+        conn.close()
+        return images[:MAX_IMAGES_PER_QUERY]
+    except Exception as e:
+        logging.error(f"獲取外部圖片失敗: {str(e)}")
+        return []
+    """
+
 @app.route('/recommend', methods=['POST'])
 def recommend():
     """推薦文件及外部圖片"""
@@ -170,6 +233,7 @@ def recommend():
         
         # 按相似度排序
         local_recommendations = sorted(local_recommendations, key=lambda x: x["similarity"], reverse=True)[:5]
+        logging.info(f"本地推薦文件: {local_recommendations}")
         
         # 獲取外部圖片
         external_images = get_external_images(query_clean, user_id)
