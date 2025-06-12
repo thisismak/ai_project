@@ -28,7 +28,7 @@ pip install -r requirements.txt
 playwright install
 python recommend.py
 
-## 總終機03 - 資料庫填充 (操作流程)
+## 總終機03 - 資料庫初始化 (操作流程)
 打開新終端機
 cd ai
 python collect_metadata.py
@@ -38,8 +38,9 @@ cd ai
 rm cloud_storage.db
 rm -rf Uploads
 source venv/Scripts/activate
-python collect_metadata.py
 python recommend.py
+cd ai
+python collect_metadata.py
 cd
 cd ../backend
 npx ts-node src/server.ts

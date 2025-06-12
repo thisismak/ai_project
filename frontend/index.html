@@ -20,7 +20,9 @@
       placeholder="搜尋文件..."
       class="w-full p-2 border rounded"
     />
-    <ul id="search-results" class="absolute w-full bg-white border rounded shadow mt-1 max-h-60 overflow-y-auto hidden"></ul>
+    <ul id="search-results" class="absolute w-full bg-white border rounded shadow mt-1 max-h-60 overflow-y-auto hidden">
+      <li class="p-2 text-gray-500">AI 內容推薦（即將推出）</li>
+    </ul>
     <div id="search-error" class="text-red-500 mt-2 hidden"></div>
   </div>
   <div class="mb-6">
@@ -60,40 +62,57 @@
       };
     }
 
+    // 渲染文件列表
+    function renderFiles(files) {
+      const fileList = document.getElementById('file-list');
+      fileList.innerHTML = '';
+      if (!files || files.length === 0) {
+        fileList.innerHTML = '<p class="text-gray-500">無文件</p>';
+        return;
+      }
+      files.forEach(file => {
+        const div = document.createElement('div');
+        div.className = 'bg-white p-4 border rounded shadow flex justify-between items-center';
+        div.innerHTML = `
+          <div>
+            <p>${file.filename}</p>
+            <p class="text-sm text-gray-500">上傳時間: ${file.upload_date || '未知'}</p>
+          </div>
+          <div>
+            <button class="bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600 mr-2" onclick="downloadFile('${file.id}', '${file.filename}')">下載</button>
+            <button class="bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600" onclick="deleteFile('${file.id}')">刪除</button>
+          </div>
+        `;
+        fileList.appendChild(div);
+      });
+    }
+
     // 獲取文件列表
-    async function fetchFiles() {
+    async function fetchFiles(query = '') {
       try {
-        const files = await apiRequest('/api/files/list', 'GET');
-        const fileList = document.getElementById('file-list');
-        fileList.innerHTML = '';
-        if (files.error) {
-          console.error('獲取文件失敗:', files.error);
-          alert('獲取文件失敗: ' + files.error);
-          return;
+        let files;
+        if (query) {
+          // 搜尋模式：獲取搜尋結果
+          const results = await apiRequest(`/api/search?q=${encodeURIComponent(query.trim())}`, 'GET');
+          console.log('Search Results:', results);
+          if (results.error) {
+            throw new Error(results.error);
+          }
+          files = results.local_files || [];
+        } else {
+          // 默認模式：獲取所有文件
+          files = await apiRequest('/api/files/list', 'GET');
         }
         if (!Array.isArray(files)) {
           console.error('文件列表格式錯誤:', files);
           alert('文件列表格式錯誤');
           return;
         }
-        files.forEach(file => {
-          const div = document.createElement('div');
-          div.className = 'bg-white p-4 border rounded shadow flex justify-between items-center';
-          div.innerHTML = `
-            <div>
-              <p>${file.filename}</p>
-              <p class="text-sm text-gray-500">上傳時間: ${file.upload_date}</p>
-            </div>
-            <div>
-              <button class="bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600 mr-2" onclick="downloadFile('${file.id}', '${file.filename}')">下載</button>
-              <button class="bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600" onclick="deleteFile('${file.id}')">刪除</button>
-            </div>
-          `;
-          fileList.appendChild(div);
-        });
+        renderFiles(files);
       } catch (error) {
         console.error('獲取文件失敗:', error);
         alert('獲取文件失敗: ' + error.message);
+        renderFiles([]);
       }
     }
 
@@ -130,46 +149,23 @@
       errorDiv.classList.add('hidden');
       if (query.length > 2) {
         try {
-          const results = await apiRequest(`/api/search?q=${encodeURIComponent(query.trim())}`, 'GET');
-          console.log('Search Results:', results);
-          resultsList.innerHTML = '';
-          if (results.error) {
-            throw new Error(results.error);
-          }
-          if (!results.local_files && !results.external_images) {
-            resultsList.innerHTML = '<li class="p-2 text-gray-500">無結果</li>';
-            resultsList.classList.remove('hidden');
-            return;
-          }
-          if (results.local_files && Array.isArray(results.local_files)) {
-            results.local_files.forEach(file => {
-              console.log('Processing file:', file);
-              const li = document.createElement('li');
-              li.className = 'p-2 hover:bg-gray-100';
-              li.textContent = typeof file === 'string' ? file : file.filename || '未知文件';
-              resultsList.appendChild(li);
-            });
-          }
-          if (results.external_images && Array.isArray(results.external_images)) {
-            results.external_images.forEach(image => {
-              console.log('Processing image:', image);
-              const li = document.createElement('li');
-              li.className = 'p-2 hover:bg-gray-100';
-              li.innerHTML = `<img src="${image.url}" alt="${image.title}" class="w-16 h-16 inline-block mr-2">${image.title}`;
-              resultsList.appendChild(li);
-            });
-          }
+          // 獲取搜尋結果並更新「您的文件」
+          await fetchFiles(query);
+          // 下拉清單預留給 AI 推薦，顯示占位符
+          resultsList.innerHTML = '<li class="p-2 text-gray-500">AI 內容推薦（即將推出）</li>';
           resultsList.classList.remove('hidden');
-          console.log('Search results visibility:', resultsList.classList);
         } catch (error) {
           console.error('搜尋失敗:', error);
           errorDiv.textContent = '搜尋失敗: ' + error.message;
           errorDiv.classList.remove('hidden');
-          resultsList.innerHTML = '';
-          resultsList.classList.add('hidden');
+          resultsList.innerHTML = '<li class="p-2 text-gray-500">AI 內容推薦（即將推出）</li>';
+          resultsList.classList.remove('hidden');
+          renderFiles([]);
         }
       } else {
-        resultsList.innerHTML = '';
+        // 清空搜尋時顯示所有文件
+        fetchFiles();
+        resultsList.innerHTML = '<li class="p-2 text-gray-500">AI 內容推薦（即將推出）</li>';
         resultsList.classList.add('hidden');
       }
     }
@@ -202,7 +198,9 @@
           fileInput.value = '';
           tagsInput.value = '';
           errorDiv.classList.add('hidden');
-          fetchFiles();
+          // 刷新文件列表（根據當前搜尋狀態）
+          const query = document.getElementById('search-input').value;
+          fetchFiles(query);
         } else {
           throw new Error(data.error || '上載失敗');
         }
@@ -218,7 +216,9 @@
       if (!confirm('確定要刪除此文件？')) return;
       try {
         await apiRequest(`/api/files/delete/${fileId}`, 'DELETE');
-        fetchFiles();
+        // 刷新文件列表（根據當前搜尋狀態）
+        const query = document.getElementById('search-input').value;
+        fetchFiles(query);
         alert('文件已刪除');
       } catch (error) {
         console.error('刪除失敗:', error);
