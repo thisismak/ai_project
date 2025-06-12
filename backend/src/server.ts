@@ -10,7 +10,7 @@ import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
 
-// Load environment variables
+// 加載環境變數
 dotenv.config();
 
 // 擴展 Request 類型
@@ -25,27 +25,20 @@ app.use(express.json());
 app.use(fileUpload());
 app.use(cors());
 
-// Serve static files from the frontend directory
+// 提供前端靜態檔案
 app.use(express.static(path.join(__dirname, '..', '..', 'frontend')));
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret';
 
 async function initDatabase() {
-  const dbDir = path.join(__dirname, '..', 'ai');
-  const dbPath = path.join(dbDir, 'cloud_storage.db');
-
-  // Create ai directory if it doesn't exist
-  if (!fs.existsSync(dbDir)) {
-    fs.mkdirSync(dbDir, { recursive: true });
-    console.log(`Created directory: ${dbDir}`);
-  }
+  const dbPath = path.join(__dirname, '..', '..', 'ai', 'cloud_storage.db');
 
   try {
     const db = await open({
       filename: dbPath,
       driver: sqlite3.Database
     });
-    // Create users table
+    // 創建 users 表
     await db.exec(`
       CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -53,7 +46,7 @@ async function initDatabase() {
         password TEXT
       )
     `);
-    // Create files table
+    // 創建 files 表
     await db.exec(`
       CREATE TABLE IF NOT EXISTS files (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -64,7 +57,7 @@ async function initDatabase() {
         upload_date TEXT
       )
     `);
-    // Create search_history table
+    // 創建 search_history 表
     await db.exec(`
       CREATE TABLE IF NOT EXISTS search_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,10 +66,10 @@ async function initDatabase() {
         timestamp TEXT
       )
     `);
-    console.log(`Database initialized at: ${dbPath}`);
+    console.log(`資料庫初始化於: ${dbPath}`);
     return db;
   } catch (error) {
-    console.error(`Failed to initialize database at ${dbPath}:`, error);
+    console.error(`初始化資料庫失敗於 ${dbPath}:`, error);
     throw error;
   }
 }
@@ -125,7 +118,7 @@ app.post('/api/auth/register', async (req: Request, res: Response): Promise<void
     if (error.code === 'SQLITE_CONSTRAINT') {
       res.status(409).json({ error: '電郵已存在' });
     } else {
-      res.status(500).json({ error: '註冊失敗: 數據庫錯誤' });
+      res.status(500).json({ error: '註冊失敗: 資料庫錯誤' });
     }
   }
 });
@@ -157,7 +150,7 @@ app.post('/api/login', async (req: Request, res: Response): Promise<void> => {
     }
   } catch (error) {
     console.error('登入錯誤:', error);
-    res.status(500).json({ error: '登入失敗: 數據庫錯誤' });
+    res.status(500).json({ error: '登入失敗: 資料庫錯誤' });
   }
 });
 
@@ -239,6 +232,7 @@ app.post('/api/upload', authenticateToken, async (req: Request, res: Response): 
         metadata,
         new Date().toISOString()
       ]);
+      console.log(`上傳成功: user_id=${userId}, filename=${filename}, metadata=${metadata}`);
       res.json({ message: '上傳成功' });
     } finally {
       await db.close();
@@ -326,7 +320,7 @@ app.get('/api/files/download/:id', authenticateToken, async (req: Request, res: 
   }
 });
 
-// Serve index.html for the root route
+// 提供 index.html
 app.get('/', (req: Request, res: Response): void => {
   res.sendFile(path.join(__dirname, '..', '..', 'frontend', 'index.html'));
 });
